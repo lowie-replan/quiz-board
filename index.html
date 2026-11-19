@@ -65,19 +65,38 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
 .nx{background:linear-gradient(#ff7ab8,#ff3d8a);color:#fff;justify-self:center;margin-top:4px;text-align:center;border:0;box-shadow:0 4px 0 rgba(0,0,0,.25)}
 @media (prefers-reduced-motion:reduce){.modal{animation:none}.tile:hover:not(:disabled){transform:none}}
 .cloud{position:fixed;right:10px;bottom:10px;z-index:9;background:var(--card);color:var(--mute);border:2px solid var(--line);border-radius:999px;padding:4px 12px;font-size:.8rem;font-weight:600;cursor:pointer;max-width:calc(100vw - 20px)}
+.roster{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.scard{background:var(--card);border:3px solid var(--line);border-radius:20px;padding:14px;box-shadow:0 5px 0 var(--line);display:flex;flex-direction:column;gap:10px}
+.scard b{font-family:var(--hd);font-weight:400;font-size:1.6rem;cursor:pointer;word-break:break-word}
+.scard small{color:var(--mute);display:block;font-weight:600}
+.scard .row{gap:8px}
 </style>
 </head>
 <body>
 
-<section class="screen on" id="sEdit">
+<section class="screen on" id="sPick">
   <h1>🎯 Quiz Board</h1>
-  <p class="sub">Write your own questions. Changes are saved on this device.</p>
+  <p class="sub">Choose a student to open their page, or add a new student.</p>
+  <div class="roster" id="roster"></div>
   <div class="box">
-    <b>Student name</b> <span class="sub">(optional)</span>
+    <b>Add a student</b>
+    <div class="row" style="margin-top:8px"><input id="newName" type="text" placeholder="Student name" style="flex:1 1 200px;width:auto"><button id="addS">＋ Add student</button></div>
+    <div class="sub" id="pmsg" style="margin-top:6px"></div>
+  </div>
+</section>
+
+<section class="screen" id="sEdit">
+  <div class="row" style="justify-content:space-between">
+    <h1>🎯 Quiz Board</h1>
+    <button class="ghost" id="eBack">👥 All students</button>
+  </div>
+  <p class="sub">Write this student's own questions. Changes are saved automatically.</p>
+  <div class="box">
+    <b>Student name</b>
     <div id="teamEd" style="margin-top:6px"></div>
     <div class="row" style="margin-top:12px"><b>Total points</b> <input type="number" id="total" min="1" style="width:110px"> <span class="sub" id="perq"></span></div>
   </div>
-  <div class="tip">💡 The total points are shared equally between all your questions, so they always add up to exactly the total. For multiple choice, type up to 3 choices and tick the circle next to the correct one. Leave the choices empty for an open question.</div>
+  <div class="tip">💡 The total points are shared equally between all this student's questions, so they always add up to exactly the total. For multiple choice, type up to 3 choices and tick the circle next to the correct one. Leave the choices empty for an open question.</div>
   <div class="cats" id="qEd"></div>
   <div class="row">
     <button class="ghost" id="addQ">＋ Add question</button>
@@ -90,7 +109,7 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
 <section class="screen" id="sGame">
   <div class="row" style="justify-content:space-between">
     <h1>🎯 Quiz Board</h1>
-    <div class="row"><button class="ghost" id="edit">✏️ Edit questions</button><button class="ghost" id="again">↺ New game</button></div>
+    <div class="row"><button class="ghost" id="gBack">👥 Students</button><button class="ghost" id="edit">✏️ Edit questions</button><button class="ghost" id="again">↺ New game</button></div>
   </div>
   <div class="board" id="board"></div>
   <div class="status" id="status"></div>
@@ -128,8 +147,9 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
   function inp(v,ph,cb){var i=h("input");i.type="text";i.value=v;i.placeholder=ph;i.oninput=function(){cb(i.value);save()};return i}
 
   // ---------- data ----------
+  function uid(){return "s"+Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
   function newQ(){return{q:"",a:"",opts:["","",""],c:0,used:false}}
-  function sample(){
+  function sampleQs(){
     var D=[
       ["What is the opposite of “ancient”?",["Old","Modern","Historic"],1],
       ["A person who studies the stars is an …?",["An astronomer","A geologist","A chemist"],0],
@@ -142,29 +162,34 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
       ["Name three fruits in 10 seconds.","Any three fruits"],
       ["Describe your best friend in 3 sentences.","Open answer"]
     ];
-    return{teams:[{name:"Student 1",score:0,right:0,wrong:0}],total:500,qs:D.map(function(x){
+    return D.map(function(x){
       var q=newQ();q.q=x[0];
       if(typeof x[1]==="string"){q.a=x[1]}else{q.opts=x[1].slice();q.c=x[2];q.a=x[1][x[2]]}
       return q;
-    })};
+    });
+  }
+  function newStudent(name,qs){return{id:uid(),name:name,total:500,qs:qs||[newQ()],score:0,right:0,wrong:0}}
+  function sample(){return{students:[{id:"s1",name:"Student 1",total:500,qs:sampleQs(),score:0,right:0,wrong:0}],sid:null,view:"sPick"}}
+  function fix(s){
+    s.name=s.name||"";s.total=Math.max(1,parseInt(s.total)||500);s.qs=s.qs||[];
+    s.qs.forEach(function(q){q.q=q.q||"";q.a=q.a||"";if(!q.opts){q.opts=["","",""];q.c=0}q.c=q.c||0;q.used=!!q.used});
+    s.score=s.score||0;s.right=s.right||0;s.wrong=s.wrong||0;
+    return s;
   }
   function migrate(D){
-    if(D&&D.cats&&!D.qs){            // old category format: keep the questions, drop the labels
-      var qs=[];
-      D.cats.forEach(function(c){c.qs.forEach(function(q){
-        if(q.q&&q.q.trim())qs.push({q:q.q,a:q.a||"",opts:q.opts||["","",""],c:q.c||0,used:false});
-      })});
-      D={teams:D.teams,qs:qs,total:500};
-    }
-    D.total=Math.max(1,parseInt(D.total)||500);
-    D.teams=(D.teams&&D.teams.length?D.teams:[{name:"Student 1",score:0}]).slice(0,1);
-    D.teams[0].name=D.teams[0].name.replace(/^Team (\d+)$/,"Student $1");
-    D.qs.forEach(function(q){if(!q.opts){q.opts=["","",""];q.c=0}});
-    return D;
+    if(D&&D.students){D.students.forEach(fix);if(!D.view||D.view==="sEdit"&&!D.sid)D.view="sPick";return D}
+    // older single-student formats (with or without categories) become the first student
+    var qs=[];
+    if(D.cats){D.cats.forEach(function(c){c.qs.forEach(function(q){if(q.q&&q.q.trim())qs.push({q:q.q,a:q.a||"",opts:q.opts||["","",""],c:q.c||0,used:false})})})}
+    else qs=D.qs||[];
+    var tm=(D.teams&&D.teams[0])||{};
+    var st={id:"s1",name:(tm.name||"Student 1").replace(/^Team (\d+)$/,"Student $1"),total:D.total,qs:qs,score:tm.score||0,right:tm.right||0,wrong:tm.wrong||0};
+    fix(st);
+    return{students:[st],sid:"s1",view:(D.view==="sGame"||D.view==="sEdit")?D.view:"sPick",_ts:D._ts};
   }
   var S=sample();
-  try{var raw=localStorage.getItem(KEY);if(raw){var p=JSON.parse(raw);if(p&&p.teams&&(p.cats||p.qs))S=migrate(p)}}catch(e){}
-  
+  try{var raw=localStorage.getItem(KEY);if(raw){var p=JSON.parse(raw);if(p&&(p.students||(p.teams&&(p.cats||p.qs))))S=migrate(p)}}catch(e){}
+
   // ---------- saving: this device + Supabase ----------
   var cloudOn=/^https:\/\/[^ ]+\.supabase\.co/.test(SUPABASE_URL)&&SUPABASE_KEY&&SUPABASE_KEY.indexOf("YOUR-")<0;
   var ID=(function(){
@@ -212,7 +237,7 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
       .then(function(r){if(!r.ok)return r.text().then(function(t){var m="";try{m=JSON.parse(t).message||""}catch(e){}throw new Error(r.status+" "+(m||t).slice(0,120))});return r.json()})
       .then(function(rows){
         var d=rows[0]&&rows[0].data;
-        if(d&&d.teams&&(d.qs||d.cats)){
+        if(d&&(d.students||(d.teams&&(d.qs||d.cats)))){
           var R=migrate(d);
           if((R._ts||0)>=(S._ts||0)){
             S=R;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
@@ -228,20 +253,76 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
     try{navigator.clipboard.writeText(u).then(function(){setCloud("🔗 Link copied")})}catch(e){prompt("Board link:",u)}
   };
 
-  // total points are split so that all questions add up to exactly S.total
-  function pointsList(){
-    var idx=[];S.qs.forEach(function(q,i){if(q.q.trim())idx.push(i)});
-    var n=idx.length,T=S.total,base=n?Math.floor(T/n):0,rem=n?T%n:0,pts={},num={};
+  function find(id){for(var i=0;i<S.students.length;i++)if(S.students[i].id===id)return S.students[i];return null}
+  function st(){return find(S.sid)}
+
+  // total points are split so that all of a student's questions add up to exactly their total
+  function pointsList(s){
+    var idx=[];if(s)s.qs.forEach(function(q,i){if(q.q.trim())idx.push(i)});
+    var n=idx.length,T=s?s.total:0,base=n?Math.floor(T/n):0,rem=n?T%n:0,pts={},num={};
     idx.forEach(function(qi,k){pts[qi]=base+(k<rem?1:0);num[qi]=k+1});
     return{n:n,pts:pts,num:num,base:base,rem:rem};
   }
 
+  // ---------- screens ----------
+  function render(){
+    var s=st();
+    if(S.view!=="sPick"&&!s)S.view="sPick";
+    if(S.view==="sGame"&&!pointsList(s).n)S.view="sEdit";
+    if(S.view!=="sPick"&&S.view!=="sEdit"&&S.view!=="sGame")S.view="sPick";
+    ["sPick","sEdit","sGame"].forEach(function(id){$(id).classList.toggle("on",id===S.view)});
+    if(S.view==="sPick")renderRoster();else if(S.view==="sEdit")renderEditor();else renderBoard();
+  }
+  function applyView(){S.view="sPick";render()}   // every page load / refresh starts on the student list
+  function go(view,sid){
+    close();
+    S.view=view;if(sid!==undefined)S.sid=sid;
+    save();render();window.scrollTo(0,0);
+  }
+
+  // ---------- student list ----------
+  function renderRoster(){
+    var box=$("roster");box.innerHTML="";
+    if(!S.students.length)box.appendChild(h("div","tip","No students yet. Add one below."));
+    S.students.forEach(function(s){
+      var pl=pointsList(s),done=0;
+      s.qs.forEach(function(q){if(q.q.trim()&&q.used)done++});
+      var c=h("div","scard");
+      var nm=h("b",null,s.name.trim()||"(no name)");
+      nm.onclick=function(){go(pl.n?"sGame":"sEdit",s.id)};
+      c.appendChild(nm);
+      c.appendChild(h("small",null,pl.n?pl.n+" questions · "+done+" answered · "+s.score+" / "+s.total+" pts":"No questions yet"));
+      var r=h("div","row");
+      var o=h("button",null,"▶ Open");o.onclick=function(){go(pl.n?"sGame":"sEdit",s.id)};
+      var e=h("button","ghost sm","✏️ Edit");e.onclick=function(){go("sEdit",s.id)};
+      var x=h("button","ghost sm","✕ Delete"),sure=false;
+      x.onclick=function(){
+        if(!sure){sure=true;x.textContent="Click again to delete";setTimeout(function(){sure=false;x.textContent="✕ Delete"},3000);return}
+        S.students=S.students.filter(function(z){return z!==s});
+        if(S.sid===s.id)S.sid=null;
+        save();renderRoster();
+      };
+      r.appendChild(o);r.appendChild(e);r.appendChild(x);c.appendChild(r);box.appendChild(c);
+    });
+  }
+  function addStudent(){
+    var v=$("newName").value.trim();
+    if(!v){$("pmsg").textContent="Please type the student's name first.";return}
+    $("pmsg").textContent="";
+    var s=newStudent(v);S.students.push(s);$("newName").value="";
+    go("sEdit",s.id);
+  }
+  $("addS").onclick=addStudent;
+  $("newName").onkeydown=function(e){if(e.key==="Enter")addStudent()};
+  $("eBack").onclick=function(){go("sPick")};
+  $("gBack").onclick=function(){go("sPick")};
+
   // ---------- editor ----------
   var labels=[];
   function refreshPts(){
-    var pl=pointsList();
+    var s=st(),pl=pointsList(s);
     labels.forEach(function(l,i){l.textContent=pl.pts[i]!=null?"Q"+pl.num[i]+" · "+pl.pts[i]+" pts":"(empty)"});
-    $("perq").textContent=pl.n?pl.n+" questions · "+pl.base+(pl.rem?"–"+(pl.base+1):"")+" points each · all together exactly "+S.total:"Add a question to begin.";
+    $("perq").textContent=pl.n?pl.n+" questions · "+pl.base+(pl.rem?"–"+(pl.base+1):"")+" points each · all together exactly "+s.total:"Add a question to begin.";
   }
   function choiceRow(q,ai){
     var row=h("div","chrow"),nm="c"+Math.random().toString(36).slice(2);
@@ -255,57 +336,55 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
     return row;
   }
   function renderEditor(){
-    var t=$("teamEd");t.innerHTML="";
-    var tm=S.teams[0];
-    t.appendChild(inp(tm.name,"Student name",function(v){tm.name=v}));
-    $("total").value=S.total;
+    var s=st(),t=$("teamEd");t.innerHTML="";
+    t.appendChild(inp(s.name,"Student name",function(v){s.name=v}));
+    $("total").value=s.total;
     var box=$("qEd");box.innerHTML="";labels=[];
-    S.qs.forEach(function(q,i){
+    s.qs.forEach(function(q,i){
       var card=h("div","cat"),top=h("div","cattop"),lab=h("div","pts");
       labels.push(lab);top.appendChild(lab);
       top.appendChild(inp(q.q,"Type your question",function(v){q.q=v;refreshPts()}));
-      var x=h("button","ghost sm","✕");x.onclick=function(){S.qs.splice(i,1);save();renderEditor()};
+      var x=h("button","ghost sm","✕");x.onclick=function(){s.qs.splice(i,1);save();renderEditor()};
       top.appendChild(x);card.appendChild(top);
       var ai=inp(q.a,"Answer (shown for open questions)",function(v){q.a=v});
       card.appendChild(ai);card.appendChild(choiceRow(q,ai));
       box.appendChild(card);
     });
-    $("addQ").style.display=S.qs.length>=MAXQ?"none":"";
+    $("addQ").style.display=s.qs.length>=MAXQ?"none":"";
+    var played=s.qs.some(function(q){return q.used});
+    $("start").textContent=played?"Back to game ➜":"Start game ➜";
+    $("msg").textContent="";
     refreshPts();
   }
-  $("total").oninput=function(){S.total=Math.max(1,parseInt(this.value)||1);save();refreshPts()};
-  $("addQ").onclick=function(){S.qs.push(newQ());save();renderEditor()};
+  $("total").oninput=function(){var s=st();if(!s)return;s.total=Math.max(1,parseInt(this.value)||1);save();refreshPts()};
+  $("addQ").onclick=function(){st().qs.push(newQ());save();renderEditor()};
   var sureS=false;
   $("sample").onclick=function(){
     var b=this;
-    if(!sureS){sureS=true;b.textContent="Click again to replace everything";setTimeout(function(){sureS=false;b.textContent="↺ Load sample questions"},4000);return}
+    if(!sureS){sureS=true;b.textContent="Click again to replace this student's questions";setTimeout(function(){sureS=false;b.textContent="↺ Load sample questions"},4000);return}
     sureS=false;b.textContent="↺ Load sample questions";
-    var nm=S.teams[0].name;S=sample();S.teams[0].name=nm;save();renderEditor();
+    var s=st();s.qs=sampleQs();s.score=0;s.right=0;s.wrong=0;save();renderEditor();
   };
 
   // ---------- game ----------
   function newGame(){
-    var t=S.teams[0];t.score=0;t.right=0;t.wrong=0;if(!t.name.trim())t.name="Student 1";
-    S.qs.forEach(function(q){q.used=false});
+    var t=st();t.score=0;t.right=0;t.wrong=0;
+    t.qs.forEach(function(q){q.used=false});
     save();
   }
-  function show(id){["sEdit","sGame"].forEach(function(s){$(s).classList.toggle("on",s===id)});if(S.view!==id){S.view=id;save()}}
-  // reopen on the screen that was open before the refresh
-  function applyView(){
-    if(S.view==="sGame"&&pointsList().n){show("sGame");renderBoard()}
-    else{show("sEdit");renderEditor()}
-  }
   $("start").onclick=function(){
-    if(!pointsList().n){$("msg").textContent="Please write at least one question first.";return}
-    $("msg").textContent="";newGame();show("sGame");renderBoard();
+    var s=st();
+    if(!pointsList(s).n){$("msg").textContent="Please write at least one question first.";return}
+    if(!s.name.trim())s.name="Student";
+    go("sGame");
   };
   $("again").onclick=function(){newGame();renderBoard()};
-  $("edit").onclick=function(){renderEditor();show("sEdit")};
+  $("edit").onclick=function(){go("sEdit")};
 
   function renderBoard(){
-    var pl=pointsList(),b=$("board");b.innerHTML="";
+    var tm=st(),pl=pointsList(tm),b=$("board");b.innerHTML="";
     var left=0;
-    S.qs.forEach(function(q,i){
+    tm.qs.forEach(function(q,i){
       if(!q.q.trim())return;
       var t=h("button","tile");
       if(q.used){t.disabled=true;t.classList.add("used")}
@@ -315,16 +394,16 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
       }
       b.appendChild(t);
     });
-    var tm=S.teams[0],s=$("score");s.innerHTML="";
-    var d=h("div","team");d.appendChild(h("b",null,tm.name));
+    var s=$("score");s.innerHTML="";
+    var d=h("div","team");d.appendChild(h("b",null,tm.name.trim()||"Student"));
     d.appendChild(h("div","n",String(tm.score)));
     var step=Math.max(1,pl.base),a=h("div","adj"),m=h("button","ghost sm","−"+step),p=h("button","ghost sm","+"+step);
     m.onclick=function(){tm.score-=step;save();renderBoard()};
     p.onclick=function(){tm.score+=step;save();renderBoard()};
     a.appendChild(m);a.appendChild(p);d.appendChild(a);s.appendChild(d);
-    var st=$("status");
-    if(pl.n&&left===0)st.textContent="🎉 Well done"+(/^Student 1$/.test(tm.name)?"":", "+tm.name)+"! Final score: "+tm.score+" / "+S.total+" points ("+(tm.right||0)+" correct)";
-    else st.textContent="✅ "+(tm.right||0)+" correct · ❌ "+(tm.wrong||0)+" missed";
+    var stt=$("status");
+    if(pl.n&&left===0)stt.textContent="🎉 Well done, "+(tm.name.trim()||"Student")+"! Final score: "+tm.score+" / "+tm.total+" points ("+(tm.right||0)+" correct)";
+    else stt.textContent="✅ "+(tm.right||0)+" correct · ❌ "+(tm.wrong||0)+" missed";
   }
 
   // ---------- question popup ----------
@@ -332,16 +411,16 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
   function hasChoices(q){return q.opts&&q.opts.filter(function(o){return o.trim()}).length>=2&&(q.opts[q.c]||"").trim()!==""}
   function stopTimer(){clearInterval(tick);tick=null;$("tm").textContent="";$("tm").className="tm";$("timer").textContent="⏱ Start 30s"}
   function openQ(i){
-    var q=S.qs[i],pl=pointsList();
-    cur={i:i,pts:pl.pts[i]};
-    $("mh").textContent="Question "+pl.num[i]+" · "+cur.pts+" points";
+    var s=st(),q=s.qs[i],pl=pointsList(s);
+    cur={i:i,pts:pl.pts[i],sid:s.id};
+    $("mh").textContent=s.name.trim()+" · Question "+pl.num[i]+" · "+cur.pts+" points";
     $("mq").textContent=q.q;$("ma").textContent="";$("ma").style.color="";$("showA").textContent="Show answer";
     stopTimer();
     var w=$("who");w.innerHTML="";
     var ok=h("button",null,"✓ Correct");ok.style.background="#1faa59";
-    ok.onclick=function(){var t=S.teams[0];t.score+=cur.pts;t.right=(t.right||0)+1;done()};
+    ok.onclick=function(){var t=st();t.score+=cur.pts;t.right=(t.right||0)+1;done()};
     var no=h("button","ghost","✗ Wrong");
-    no.onclick=function(){var t=S.teams[0];t.wrong=(t.wrong||0)+1;done()};
+    no.onclick=function(){var t=st();t.wrong=(t.wrong||0)+1;done()};
     w.appendChild(ok);w.appendChild(no);
     var ch=$("chs");ch.innerHTML="";
     var has=hasChoices(q);
@@ -367,14 +446,14 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
     m.style.color=right?"":"#e5484d";
     m.textContent=right?"✅ Correct! +"+cur.pts:"❌ Not quite. The answer is "+"ABC".charAt(q.c)+".";
     var nx=h("button","nx","Continue ➜");
-    nx.onclick=function(){var t=S.teams[0];if(right){t.score+=cur.pts;t.right=(t.right||0)+1}else t.wrong=(t.wrong||0)+1;done()};
+    nx.onclick=function(){var t=st();if(right){t.score+=cur.pts;t.right=(t.right||0)+1}else t.wrong=(t.wrong||0)+1;done()};
     ch.appendChild(nx);
   }
-  function done(){S.qs[cur.i].used=true;close();save();renderBoard()}
+  function done(){st().qs[cur.i].used=true;close();save();renderBoard()}
   function close(){stopTimer();$("ov").classList.remove("on")}
   $("back").onclick=close;
   $("showA").onclick=function(){
-    var q=S.qs[cur.i],a=$("ma");
+    var q=st().qs[cur.i],a=$("ma");
     if(a.textContent){a.textContent="";this.textContent="Show answer"}
     else{a.textContent=q.a||"(no answer written)";this.textContent="Hide answer"}
   };
