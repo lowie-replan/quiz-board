@@ -124,7 +124,6 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
   var SUPABASE_URL="https://jlfsaqzqsltqazazvgog.supabase.co";
   var SUPABASE_KEY="sb_publishable_dnwoUYA4FBF2KSp27L-LzQ_Z58Y0O6v";
   var TABLE="quiz_boards";
-  var BOARD_ID="main"; // every device that opens this page shares this board (override with ?board=other)
   function h(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
   function inp(v,ph,cb){var i=h("input");i.type="text";i.value=v;i.placeholder=ph;i.oninput=function(){cb(i.value);save()};return i}
 
@@ -168,11 +167,14 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
   
   // ---------- saving: this device + Supabase ----------
   var cloudOn=/^https:\/\/[^ ]+\.supabase\.co/.test(SUPABASE_URL)&&SUPABASE_KEY&&SUPABASE_KEY.indexOf("YOUR-")<0;
-  var ID=BOARD_ID;
-  try{var qb=new URLSearchParams(location.search).get("board");if(qb)ID=qb}catch(e){}
-  var ver=0;
-  function setDirty(on){try{if(on)localStorage.setItem(KEY+"-dirty","1");else localStorage.removeItem(KEY+"-dirty")}catch(e){}}
-  function isDirty(){try{return localStorage.getItem(KEY+"-dirty")==="1"}catch(e){return false}}
+  var ID=(function(){
+    var id=null;
+    try{id=new URLSearchParams(location.search).get("board")}catch(e){}
+    try{if(!id)id=localStorage.getItem(KEY+"-id")}catch(e){}
+    if(!id)id=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():"b"+Date.now().toString(36)+Math.random().toString(36).slice(2,12);
+    try{localStorage.setItem(KEY+"-id",id)}catch(e){}
+    return id;
+  })();
   function setCloud(t){$("cloud").textContent=t}
   function hdr(extra){
     var o={apikey:SUPABASE_KEY,"Content-Type":"application/json"};
@@ -184,18 +186,16 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
   function cloudPush(keep){
     pushTimer=null;
     if(!cloudOn)return;
-    var v=ver;
     var body=JSON.stringify({id:ID,data:S,updated_at:new Date().toISOString()});
     return fetch(SUPABASE_URL+"/rest/v1/"+TABLE+"?on_conflict=id",{
       method:"POST",headers:hdr({Prefer:"resolution=merge-duplicates,return=minimal"}),body:body,keepalive:!!keep&&body.length<60000
     }).then(function(r){
       if(!r.ok)return r.text().then(function(t){var m="";try{m=JSON.parse(t).message||""}catch(e){}throw new Error(r.status+" "+(m||t).slice(0,120))});
-      if(v===ver)setDirty(false);
       if(!pushTimer)setCloud("☁️ Saved");
     }).catch(function(e){console.error("Supabase save failed:",e);setCloud("⚠️ Cloud save failed ("+e.message+") – saved on this device")});
   }
   function save(){
-    S._ts=Date.now();ver++;setDirty(true);
+    S._ts=Date.now();
     try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
     if(!cloudOn)return;
     setCloud("☁️ Saving…");
@@ -205,33 +205,23 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
   window.addEventListener("pagehide",flush);
   document.addEventListener("visibilitychange",function(){if(document.visibilityState==="hidden")flush()});
   window.addEventListener("online",function(){if(cloudOn)cloudPush()});
-  function busy(){var a=document.activeElement;return $("ov").classList.contains("on")||(a&&a.tagName==="INPUT")}
-  function pull(initial){
-    if(!cloudOn){if(initial)setCloud("💾 Saved on this device only (Supabase not set up)");return}
-    if(initial)setCloud("☁️ Loading…");
+  function cloudLoad(){
+    if(!cloudOn){setCloud("💾 Saved on this device only (Supabase not set up)");return}
+    setCloud("☁️ Loading…");
     fetch(SUPABASE_URL+"/rest/v1/"+TABLE+"?id=eq."+encodeURIComponent(ID)+"&select=data",{headers:hdr()})
       .then(function(r){if(!r.ok)return r.text().then(function(t){var m="";try{m=JSON.parse(t).message||""}catch(e){}throw new Error(r.status+" "+(m||t).slice(0,120))});return r.json()})
       .then(function(rows){
         var d=rows[0]&&rows[0].data;
         if(d&&d.teams&&(d.qs||d.cats)){
           var R=migrate(d);
-          if(isDirty()||pushTimer){ if(initial)cloudPush() }          // this device has unsent changes
-          else if(initial?(R._ts||0)!==(S._ts||0):(R._ts||0)>(S._ts||0)){
-            if(!initial&&busy())return;
+          if((R._ts||0)>=(S._ts||0)){
             S=R;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
             applyView();
-          }
-          if(initial)setCloud("☁️ Saved");
-        }else if(initial)cloudPush();                                 // first device creates the shared board
+            setCloud("☁️ Saved");
+          }else cloudPush();
+        }else cloudPush();
       })
-      .catch(function(e){if(initial){console.error("Supabase load failed:",e);setCloud("⚠️ Cloud load failed ("+e.message+") – using this device")}});
-  }
-  function cloudLoad(){
-    pull(true);
-    if(cloudOn){
-      setInterval(function(){if(document.visibilityState==="visible")pull(false)},4000);
-      document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")pull(false)});
-    }
+      .catch(function(e){console.error("Supabase load failed:",e);setCloud("⚠️ Cloud load failed ("+e.message+") – using this device")});
   }
   $("cloud").onclick=function(){
     var u=location.origin+location.pathname+"?board="+encodeURIComponent(ID);
