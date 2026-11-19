@@ -216,7 +216,7 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
           var R=migrate(d);
           if((R._ts||0)>=(S._ts||0)){
             S=R;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
-            if($("sGame").classList.contains("on"))renderBoard();else renderEditor();
+            applyView();
             setCloud("☁️ Saved");
           }else cloudPush();
         }else cloudPush();
@@ -289,7 +289,12 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
     S.qs.forEach(function(q){q.used=false});
     save();
   }
-  function show(id){["sEdit","sGame"].forEach(function(s){$(s).classList.toggle("on",s===id)})}
+  function show(id){["sEdit","sGame"].forEach(function(s){$(s).classList.toggle("on",s===id)});if(S.view!==id){S.view=id;save()}}
+  // reopen on the screen that was open before the refresh
+  function applyView(){
+    if(S.view==="sGame"&&pointsList().n){show("sGame");renderBoard()}
+    else{show("sEdit");renderEditor()}
+  }
   $("start").onclick=function(){
     if(!pointsList().n){$("msg").textContent="Please write at least one question first.";return}
     $("msg").textContent="";newGame();show("sGame");renderBoard();
@@ -383,7 +388,7 @@ input:focus{outline:3px solid var(--accent);outline-offset:1px}
     },1000);
   };
 
-  renderEditor();
+  applyView();
   cloudLoad();
 })();
 </script>
